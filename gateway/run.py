@@ -4080,6 +4080,13 @@ class GatewayRunner:
 
         # Build the context prompt to inject
         context_prompt = build_session_context_prompt(context, redact_pii=_redact_pii)
+
+        if event.group_context:
+            context_prompt = (
+                f"{event.group_context}\n\n{context_prompt}"
+                if context_prompt
+                else event.group_context
+            )
         
         # If the previous session expired and was auto-reset, prepend a notice
         # so the agent knows this is a fresh conversation (not an intentional /reset).

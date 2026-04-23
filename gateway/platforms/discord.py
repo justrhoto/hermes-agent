@@ -3230,6 +3230,33 @@ class DiscordAdapter(BasePlatformAdapter):
             if message.reference.resolved:
                 reply_to_text = getattr(message.reference.resolved, "content", None) or None
 
+        group_context = None
+        if not isinstance(message.channel, discord.DMChannel):
+            try:
+                # Get the last 10 messages
+                history = [m async for m in message.channel.history(limit=10)]
+                history.reverse()  # Oldest first
+                
+                # Format the history
+                formatted_history = []
+                for msg in history:
+                    formatted_history.append(f"{msg.author.display_name}: {msg.content}")
+                
+                # Get the list of members
+                members = message.channel.members
+                member_names = [member.display_name for member in members]
+
+                group_context = (
+                    f"Conversation History (last 10 messages):\n"
+                    f"=========================================\n"
+                    f"{'\n'.join(formatted_history)}\n\n"
+                    f"Channel Members:\n"
+                    f"================\n"
+                    f"{', '.join(member_names)}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to gather group context: {e}")
+
         event = MessageEvent(
             text=event_text,
             message_type=msg_type,
@@ -3243,6 +3270,7 @@ class DiscordAdapter(BasePlatformAdapter):
             timestamp=message.created_at,
             auto_skill=_skills,
             channel_prompt=_channel_prompt,
+            group_context=group_context,
         )
 
         # Track thread participation so the bot won't require @mention for
