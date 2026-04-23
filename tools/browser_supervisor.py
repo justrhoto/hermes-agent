@@ -1085,10 +1085,38 @@ class CDPSupervisor:
     def _on_frame_detached(
         self, params: Dict[str, Any], session_id: Optional[str]
     ) -> None:
+        """Remove a frame from our state only when it's truly gone.
+
+        CDP emits ``Page.frameDetached`` with a ``reason`` of either
+        ``"remove"`` (the frame is actually gone from the DOM) or ``"swap"``
+        (the frame is migrating to a new process — typical when a
+        same-process iframe becomes an OOPIF, or when history navigates).
+        Dropping on ``swap`` would hide OOPIFs from the agent the moment
+        Chromium promotes them to their own process, so treat swap as a
+        no-op.
+
+        Even with ``reason=remove``, the parent page's perspective is
+        "the child frame left MY process tree" — which is what happens
+        when a same-origin iframe gets promoted to an OOPIF. If we
+        already have a live child CDP session attached for that frame_id,
+        the frame is still very much alive; only drop it when we have
+        no session record.
+        """
         frame_id = params.get("frameId")
         if not frame_id:
             return
+        reason = str(params.get("reason") or "remove").lower()
+        if reason == "swap":
+            return
         with self._state_lock:
+            existing = self._frames.get(frame_id)
+            # Keep OOPIF records even when the parent says the frame was
+            # "removed" — the iframe is still visible, just in a different
+            # process. If the frame truly goes away later, Target.detached
+            # + the next Page.frameDetached without a live session will
+            # clear it.
+            if existing and existing.is_oopif and existing.cdp_session_id:
+                return
             self._frames.pop(frame_id, None)
 
     async def _on_target_attached(self, params: Dict[str, Any]) -> None:
@@ -1140,16 +1168,34 @@ class CDPSupervisor:
         await self._install_dialog_bridge(sid)
 
     def _on_target_detached(self, params: Dict[str, Any]) -> None:
+        """Handle a child CDP session detaching.
+
+        We deliberately DO NOT drop frames from ``_frames`` here — Browserbase
+        fires transient detach events during page transitions even while the
+        iframe is still visible to the user, and dropping the record hides
+        OOPIFs from the agent between the detach and the next
+        ``Target.attachedToTarget``. Instead, we just clear the session
+        binding so stale ``cdp_session_id`` values aren't used for routing.
+        If the iframe truly goes away, ``Page.frameDetached`` will clean up.
+        """
         sid = params.get("sessionId")
         if not sid:
             return
         self._child_sessions.pop(sid, None)
         with self._state_lock:
-            drop_ids = [
-                fid for fid, frame in self._frames.items() if frame.cdp_session_id == sid
-            ]
-            for fid in drop_ids:
-                self._frames.pop(fid, None)
+            for fid, frame in list(self._frames.items()):
+                if frame.cdp_session_id == sid:
+                    # Replace with a copy that has cdp_session_id cleared so
+                    # routing falls back to top-level page session if retried.
+                    self._frames[fid] = FrameInfo(
+                        frame_id=frame.frame_id,
+                        url=frame.url,
+                        origin=frame.origin,
+                        parent_frame_id=frame.parent_frame_id,
+                        is_oopif=frame.is_oopif,
+                        cdp_session_id=None,
+                        name=frame.name,
+                    )
 
     # ── Console / exception ring buffer ─────────────────────────────────────
 

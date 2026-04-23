@@ -353,6 +353,83 @@ def test_browser_dialog_tool_end_to_end(chrome_cdp, supervisor_registry):
     assert "PYTEST-TOOL-END2END" in r["dialog"]["message"]
 
 
+def test_browser_cdp_frame_id_routes_via_supervisor(chrome_cdp, supervisor_registry, monkeypatch):
+    """browser_cdp(frame_id=...) routes Runtime.evaluate through supervisor.
+
+    Mocks the supervisor with a known frame and verifies browser_cdp sends
+    the call via the supervisor's loop rather than opening a stateless
+    WebSocket. This is the path that makes cross-origin iframe eval work
+    on Browserbase.
+    """
+    cdp_url, _port = chrome_cdp
+    sv = supervisor_registry.get_or_start(task_id="frame-id-test", cdp_url=cdp_url)
+    assert sv.snapshot().active
+
+    # Inject a fake OOPIF frame pointing at the SUPERVISOR's own page session
+    # so we can verify routing. We fake is_oopif=True so the code path
+    # treats it as an OOPIF child.
+    import tools.browser_supervisor as _bs
+    with sv._state_lock:
+        fake_frame_id = "FAKE-FRAME-001"
+        sv._frames[fake_frame_id] = _bs.FrameInfo(
+            frame_id=fake_frame_id,
+            url="fake://",
+            origin="",
+            parent_frame_id=None,
+            is_oopif=True,
+            cdp_session_id=sv._page_session_id,  # route at page scope
+        )
+
+    # Route the tool through the supervisor. Should succeed and return
+    # something that clearly came from CDP (in this case we'll target
+    # Browser.getVersion which is browser-level but works on any session).
+    from tools.browser_cdp_tool import browser_cdp
+    result = browser_cdp(
+        method="Runtime.evaluate",
+        params={"expression": "1 + 1", "returnByValue": True},
+        frame_id=fake_frame_id,
+        task_id="frame-id-test",
+    )
+    r = json.loads(result)
+    assert r.get("success") is True, f"expected success, got: {r}"
+    assert r.get("frame_id") == fake_frame_id
+    assert r.get("session_id") == sv._page_session_id
+    value = r.get("result", {}).get("result", {}).get("value")
+    assert value == 2, f"expected 2, got {value!r}"
+
+
+def test_browser_cdp_frame_id_missing_supervisor():
+    """browser_cdp(frame_id=...) errors cleanly when no supervisor is attached."""
+    from tools.browser_cdp_tool import browser_cdp
+    result = browser_cdp(
+        method="Runtime.evaluate",
+        params={"expression": "1"},
+        frame_id="any-frame-id",
+        task_id="no-such-task",
+    )
+    r = json.loads(result)
+    assert r.get("success") is not True
+    assert "supervisor" in (r.get("error") or "").lower()
+
+
+def test_browser_cdp_frame_id_not_in_frame_tree(chrome_cdp, supervisor_registry):
+    """browser_cdp(frame_id=...) errors when the frame_id isn't known."""
+    cdp_url, _port = chrome_cdp
+    sv = supervisor_registry.get_or_start(task_id="bad-frame-test", cdp_url=cdp_url)
+    assert sv.snapshot().active
+
+    from tools.browser_cdp_tool import browser_cdp
+    result = browser_cdp(
+        method="Runtime.evaluate",
+        params={"expression": "1"},
+        frame_id="nonexistent-frame",
+        task_id="bad-frame-test",
+    )
+    r = json.loads(result)
+    assert r.get("success") is not True
+    assert "not found" in (r.get("error") or "").lower()
+
+
 def test_bridge_captures_prompt_and_returns_reply_text(chrome_cdp, supervisor_registry):
     """End-to-end: agent's prompt_text round-trips INTO the page's JS.
 
