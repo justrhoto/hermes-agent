@@ -3434,25 +3434,41 @@ class DiscordAdapter(BasePlatformAdapter):
                 history = [m async for m in message.channel.history(limit=10)]
                 history.reverse()  # Oldest first
                 
-                # Format the history
+                # Format the history and gather recent participants
                 formatted_history = []
+                participants = {} # user.id -> user.display_name
                 for msg in history:
                     formatted_history.append(f"{msg.author.display_name}: {msg.content}")
+                    if msg.author.id not in participants:
+                        participants[msg.author.id] = msg.author.display_name
                 
-                # Get the list of members
-                members = message.channel.members
-                member_names = [member.display_name for member in members]
+                # Get the list of members. This is context-dependent.
+                member_names = []
+                if isinstance(message.channel, discord.GroupChannel):
+                    member_names = [r.display_name for r in message.channel.recipients]
+                elif isinstance(message.channel, discord.Thread):
+                    # .members on a thread is often incomplete or requires intents.
+                    # Listing participants from recent history is more reliable.
+                    member_names = list(participants.values())
+                elif hasattr(message.channel, 'members'):
+                    # message.channel.members can be huge. Recent participants is better.
+                    member_names = list(participants.values())
+
 
                 group_context = (
                     f"Conversation History (last 10 messages):\n"
                     f"=========================================\n"
-                    f"{'\n'.join(formatted_history)}\n\n"
-                    f"Channel Members:\n"
-                    f"================\n"
-                    f"{', '.join(member_names)}"
+                    f"{'\\n'.join(formatted_history)}\n\n"
+                    f"Channel Participants:\n"
+                    f"=====================\n"
+                    f"Recent speakers: {', '.join(sorted(participants.values()))}\n"
                 )
+                if member_names:
+                    group_context += f"Known members in this conversation: {', '.join(sorted(list(set(member_names))))}"
+
             except Exception as e:
                 logger.warning(f"Failed to gather group context: {e}")
+
 
         event = MessageEvent(
             text=event_text,
