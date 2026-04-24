@@ -3431,7 +3431,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if not isinstance(message.channel, discord.DMChannel):
             try:
                 # Get the last 10 messages
-                history = [m async for m in message.channel.history(limit=20)]
+                history = [m async for m in message.channel.history(limit=10)]
                 history.reverse()  # Oldest first
                 
                 # Format the history and gather recent participants
@@ -3458,7 +3458,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 group_context = (
                     f"Conversation History (last 10 messages):\n"
                     f"=========================================\n"
-                    f"{'\\n'.join(formatted_history)}\n\n"
+                    f"{'\n'.join(formatted_history)}\n\n"
                     f"Channel Participants:\n"
                     f"=====================\n"
                     f"Recent speakers: {', '.join(sorted(participants.values()))}\n"
