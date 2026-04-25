@@ -3443,7 +3443,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 formatted_history = []
                 participants = {} # user.id -> user.display_name
                 for msg in history:
-                    formatted_history.append(f"{msg.author.display_name}: {msg.content}")
+                    formatted_history.append(f"[{msg.author.display_name}] {msg.content}")
                     if msg.author.id not in participants:
                         participants[msg.author.id] = msg.author.display_name
 
