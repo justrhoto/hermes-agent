@@ -352,6 +352,10 @@ def build_session_context_prompt(
                 "channel history, pin messages, manage roles, or list server members. "
                 "Do not promise to perform these actions."
             )
+        lines.append(
+            " If not in a DM, you have access to the last 10 lines of chat. Do "
+            "not prefix your reply with a username."
+        )
     elif context.source.platform == Platform.BLUEBUBBLES:
         lines.append("")
         lines.append(
