@@ -350,8 +350,7 @@ def build_session_context_prompt(
                 "**Platform notes:** You are running inside Discord. "
                 "You do NOT have access to Discord-specific APIs — you cannot search "
                 "channel history, pin messages, manage roles, or list server members. "
-                "Do not promise to perform these actions. If the user asks, explain "
-                "that you can only read messages sent directly to you and respond."
+                "Do not promise to perform these actions."
             )
     elif context.source.platform == Platform.BLUEBUBBLES:
         lines.append("")
